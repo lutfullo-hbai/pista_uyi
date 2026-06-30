@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Qurut Market</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+</head>
+<body>
+  <div class="header">
+    🛍 Qurut Market
+    <button class="history-header-btn" onclick="showOrders()" title="Mening buyurtmalarim">📋</button>
+  </div>
+
+  <div id="catalog-page">
+    <div class="search-box">
+      <input type="text" id="search-input" placeholder="Qidirish..." oninput="onSearch()">
+    </div>
+    <div class="categories" id="categories"></div>
+    <div class="products" id="products"></div>
+  </div>
+
+  <div id="cart-page" class="page hidden">
+    <button class="back-btn" onclick="showCatalog()">← Orqaga</button>
+    <div class="section-title">🛒 Savat</div>
+    <div id="cart-items"></div>
+    <div id="cart-total" style="text-align:right;font-size:18px;font-weight:700;margin-top:12px;"></div>
+    <button class="submit-btn" onclick="showOrderForm()" style="margin-top:16px;">Buyurtma berish</button>
+  </div>
+
+  <div id="order-form" class="page hidden">
+    <button class="back-btn" onclick="showCart()">← Orqaga</button>
+    <div class="section-title">📋 Ma'lumotlaringiz</div>
+    <div class="form-group">
+      <label>Ismingiz</label>
+      <input type="text" id="name-input" placeholder="Ismingizni kiriting">
+    </div>
+    <div class="form-group">
+      <label>Telefon raqam</label>
+      <input type="tel" id="phone-input" placeholder="+998 XX XXX XX XX">
+    </div>
+    <div class="form-group">
+      <label>Manzil</label>
+      <textarea id="address-input" placeholder="Manzilingizni kiriting"></textarea>
+    </div>
+    <button class="submit-btn" onclick="submitOrder()">✅ Buyurtmani tasdiqlash</button>
+  </div>
+
+  <div id="success-page" class="page hidden">
+    <div class="success-icon">✅</div>
+    <div class="success-title">Buyurtma qabul qilindi!</div>
+    <div class="success-desc" id="success-order-id"></div>
+    <button class="submit-btn" onclick="resetAndCatalog()">Davom etish</button>
+  </div>
+
+  <div id="orders-page" class="page hidden">
+    <button class="back-btn" onclick="showCatalog()">← Orqaga</button>
+    <div class="section-title">📋 Mening buyurtmalarim</div>
+    <div id="orders-list"></div>
+  </div>
+
+  <div id="cart-bar" class="cart-bar" style="display:none;">
+    <div class="cart-info" id="cart-info">Savat: 0 ta (0 so'm)</div>
+    <button class="checkout-btn" onclick="showCart()">Savatni ko'rish</button>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
