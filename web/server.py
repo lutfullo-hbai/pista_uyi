@@ -20,7 +20,7 @@ STATIC_DIR = BASE_DIR / "web" / "static"
 async def lifespan(app: FastAPI):
     await db.connect()
     yield
-        await db.close()
+    await db.close()
 
 
 app = FastAPI(lifespan=lifespan)

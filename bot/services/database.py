@@ -9,6 +9,8 @@ class Database:
         self.pool: asyncpg.Pool | None = None
 
     async def connect(self):
+        if self.pool:
+            return
         self.pool = await asyncpg.create_pool(settings.effective_database_url)
 
         async with self.pool.acquire() as conn:

@@ -31,7 +31,7 @@ def _log_task_exception(task: asyncio.Task):
 
 
 async def run_bot():
-    """Run Telegram bot."""
+    """Run Telegram bot — waits for DB pool if not already connected."""
     if not db.pool:
         await db.connect()
         logger.info("Connected to database (bot)")
