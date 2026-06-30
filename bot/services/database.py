@@ -15,7 +15,7 @@ class Database:
 
         async with self.pool.acquire() as conn:
             await conn.execute("""
-                CREATE TABLE IF NOT EXISTS users (
+                CREATE TABLE IF NOT EXISTS app_users (
                     user_id BIGINT PRIMARY KEY,
                     username VARCHAR(255),
                     first_name VARCHAR(255),
@@ -147,26 +147,26 @@ class Database:
                         language_code: str | None = None, is_premium: bool = False) -> None:
         async with self.pool.acquire() as conn:
             await conn.execute("""
-                INSERT INTO users (user_id, username, first_name, last_name, language_code, is_premium, last_seen)
+                INSERT INTO app_users (user_id, username, first_name, last_name, language_code, is_premium, last_seen)
                 VALUES ($1, $2, $3, $4, $5, $6, NOW())
                 ON CONFLICT (user_id)
                 DO UPDATE SET
-                    username = COALESCE($2, users.username),
-                    first_name = COALESCE($3, users.first_name),
-                    last_name = COALESCE($4, users.last_name),
-                    language_code = COALESCE($5, users.language_code),
+                    username = COALESCE($2, app_users.username),
+                    first_name = COALESCE($3, app_users.first_name),
+                    last_name = COALESCE($4, app_users.last_name),
+                    language_code = COALESCE($5, app_users.language_code),
                     is_premium = $6,
                     last_seen = NOW()
             """, user_id, username, first_name, last_name, language_code, is_premium)
 
     async def get_user(self, user_id: int) -> dict | None:
         async with self.pool.acquire() as conn:
-            row = await conn.fetchrow("SELECT * FROM users WHERE user_id = $1", user_id)
+            row = await conn.fetchrow("SELECT * FROM app_users WHERE user_id = $1", user_id)
             return dict(row) if row else None
 
     async def get_all_users(self) -> list[dict]:
         async with self.pool.acquire() as conn:
-            rows = await conn.fetch("SELECT * FROM users ORDER BY last_seen DESC")
+            rows = await conn.fetch("SELECT * FROM app_users ORDER BY last_seen DESC")
             return [dict(r) for r in rows]
 
     # ── Categories ──
@@ -800,19 +800,16 @@ class Database:
 
     async def clear_all_tables(self) -> None:
         async with self.pool.acquire() as conn:
-            await conn.execute("TRUNCATE TABLE "
-                "users, "
-                "warehouse_transactions, warehouse_items, "
-                "order_status_log, order_items, orders, "
-                "cart_items, carts, "
-                "products, categories, daily_sales "
-                "CASCADE")
+            await conn.execute("DELETE FROM cart_items")
+            await conn.execute("DELETE FROM carts")
+            await conn.execute("UPDATE products SET is_available = FALSE, category_id = NULL")
+            await conn.execute("DELETE FROM categories")
 
     async def export_all_data(self) -> dict:
         async with self.pool.acquire() as conn:
             tables = {}
             for table in (
-                "users", "categories", "products", "orders", "order_items",
+                "app_users", "categories", "products", "orders", "order_items",
                 "order_status_log", "carts", "cart_items",
                 "warehouse_items", "warehouse_transactions", "daily_sales",
             ):

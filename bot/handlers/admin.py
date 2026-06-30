@@ -603,13 +603,11 @@ async def clear_data_start(message: types.Message, state: FSMContext):
         return
     await state.set_state(ClearDataForm.confirm)
     await message.answer(
-        "⚠️ <b>DIQQAT!</b> Barcha ma'lumotlar o'chiriladi:\n\n"
-        "• Kategoriyalar\n"
-        "• Mahsulotlar\n"
-        "• Buyurtmalar\n"
-        "• Savatlar\n"
-        "• Ombor ma'lumotlari\n"
-        "• Kunlik tushumlar\n\n"
+        "⚠️ <b>DIQQAT! Mahsulot katalogi tozalanadi:</b>\n\n"
+        "❌ Kategoriyalar o'chadi\n"
+        "❌ Mahsulotlar yashirinadi (is_available = False)\n"
+        "❌ Foydalanuvchi savatlari tozalanadi\n\n"
+        "✅ <b>Saqlanadi:</b> Buyurtmalar, Ombor, Kunlik tushumlar, Foydalanuvchilar\n\n"
         "Tasdiqlash uchun <code>ha</code> deb yozing:",
         parse_mode="HTML",
     )
