@@ -20,6 +20,16 @@ def is_admin(user_id: int) -> bool:
     return user_id in settings.admin_ids
 
 
+@router.message(Command("chatid"))
+async def chat_id_handler(message: types.Message):
+    await message.answer(
+        f"Chat ID: <code>{message.chat.id}</code>\n"
+        f"Chat turi: {message.chat.type}\n"
+        f"Chat nomi: {message.chat.title or message.chat.first_name or ''}",
+        parse_mode="HTML",
+    )
+
+
 @router.message(Command("start"))
 async def start_handler(message: types.Message):
     keyboard = admin_keyboard() if is_admin(message.from_user.id) else main_keyboard()

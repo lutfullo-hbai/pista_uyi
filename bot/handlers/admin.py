@@ -1,5 +1,10 @@
+import io
+import json
 import os
 import uuid
+import zipfile
+from datetime import date
+from pathlib import Path
 
 from aiogram import Router, types, F
 from aiogram.filters import Command
@@ -41,6 +46,10 @@ class OrderStatusForm(StatesGroup):
 
 class BroadcastForm(StatesGroup):
     message = State()
+
+
+class ClearDataForm(StatesGroup):
+    confirm = State()
 
 
 VALID_STATUSES = ["pending", "processing", "delivered", "cancelled"]
@@ -364,11 +373,15 @@ async def delete_product(message: types.Message):
     except ValueError:
         await message.answer("Noto'g'ri ID.")
         return
+    product = await db.get_product(product_id)
+    if not product:
+        await message.answer("Mahsulot topilmadi.")
+        return
     success = await db.delete_product(product_id)
     if success:
         await message.answer(f"✅ Mahsulot #{product_id} o'chirildi.")
     else:
-        await message.answer("Mahsulot topilmadi.")
+        await message.answer("❌ Mahsulotni o'chirib bo'lmadi, chunki buyurtmalarda mavjud.")
 
 
 # ── Toggle Product Availability ──
@@ -580,3 +593,69 @@ async def broadcast_send(message: types.Message, state: FSMContext):
     await message.answer(f"✅ Xabar yuborildi: {sent} ta foydalanuvchiga.\n"
                          f"❌ Yuborilmadi: {failed} ta.")
     await state.clear()
+
+
+# ── Clear All Data ──
+
+@router.message(Command("clear_data"))
+async def clear_data_start(message: types.Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        return
+    await state.set_state(ClearDataForm.confirm)
+    await message.answer(
+        "⚠️ <b>DIQQAT!</b> Barcha ma'lumotlar o'chiriladi:\n\n"
+        "• Kategoriyalar\n"
+        "• Mahsulotlar\n"
+        "• Buyurtmalar\n"
+        "• Savatlar\n"
+        "• Ombor ma'lumotlari\n"
+        "• Kunlik tushumlar\n\n"
+        "Tasdiqlash uchun <code>ha</code> deb yozing:",
+        parse_mode="HTML",
+    )
+
+
+@router.message(ClearDataForm.confirm)
+async def clear_data_confirm(message: types.Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        return
+    if message.text.strip().lower() not in ("ha", "yes", "да"):
+        await message.answer("Bekor qilindi.")
+        await state.clear()
+        return
+    try:
+        await db.clear_all_tables()
+        await message.answer("✅ Barcha ma'lumotlar o'chirildi.")
+        log_user_action(logger, message.from_user.id, "data_cleared")
+    except Exception as e:
+        logger.error("Error clearing data: %s", e)
+        await message.answer("❌ Xatolik yuz berdi.")
+    finally:
+        await state.clear()
+
+
+# ── Data Export ──
+
+@router.message(Command("data_export"))
+async def data_export(message: types.Message):
+    if not is_admin(message.from_user.id):
+        return
+    try:
+        await message.answer("⏳ Ma'lumotlar tayyorlanmoqda...")
+        data = await db.export_all_data()
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("data.json", json.dumps(data, ensure_ascii=False, indent=2, default=str))
+            uploads_dir = Path("web/static/uploads")
+            if uploads_dir.is_dir():
+                for fpath in uploads_dir.iterdir():
+                    if fpath.is_file():
+                        zf.write(fpath, f"images/{fpath.name}")
+        buf.seek(0)
+        today = date.today().isoformat()
+        doc = types.BufferedInputFile(buf.read(), filename=f"backup_{today}.zip")
+        await message.answer_document(doc, caption="✅ Ma'lumotlar export qilindi.")
+        log_user_action(logger, message.from_user.id, "data_exported")
+    except Exception as e:
+        logger.error("Error exporting data: %s", e)
+        await message.answer("❌ Xatolik yuz berdi.")

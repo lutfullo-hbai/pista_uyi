@@ -15,6 +15,19 @@ class Database:
 
         async with self.pool.acquire() as conn:
             await conn.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    user_id BIGINT PRIMARY KEY,
+                    username VARCHAR(255),
+                    first_name VARCHAR(255),
+                    last_name VARCHAR(255),
+                    language_code VARCHAR(10),
+                    is_premium BOOLEAN DEFAULT FALSE,
+                    first_seen TIMESTAMPTZ DEFAULT NOW(),
+                    last_seen TIMESTAMPTZ DEFAULT NOW()
+                )
+            """)
+
+            await conn.execute("""
                 CREATE TABLE IF NOT EXISTS categories (
                     id SERIAL PRIMARY KEY,
                     name VARCHAR(255) NOT NULL,
@@ -127,6 +140,35 @@ class Database:
         if self.pool:
             await self.pool.close()
 
+    # ── Users ──
+
+    async def save_user(self, user_id: int, username: str | None = None,
+                        first_name: str | None = None, last_name: str | None = None,
+                        language_code: str | None = None, is_premium: bool = False) -> None:
+        async with self.pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO users (user_id, username, first_name, last_name, language_code, is_premium, last_seen)
+                VALUES ($1, $2, $3, $4, $5, $6, NOW())
+                ON CONFLICT (user_id)
+                DO UPDATE SET
+                    username = COALESCE($2, users.username),
+                    first_name = COALESCE($3, users.first_name),
+                    last_name = COALESCE($4, users.last_name),
+                    language_code = COALESCE($5, users.language_code),
+                    is_premium = $6,
+                    last_seen = NOW()
+            """, user_id, username, first_name, last_name, language_code, is_premium)
+
+    async def get_user(self, user_id: int) -> dict | None:
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow("SELECT * FROM users WHERE user_id = $1", user_id)
+            return dict(row) if row else None
+
+    async def get_all_users(self) -> list[dict]:
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch("SELECT * FROM users ORDER BY last_seen DESC")
+            return [dict(r) for r in rows]
+
     # ── Categories ──
 
     async def get_categories(self) -> list[dict]:
@@ -206,8 +248,11 @@ class Database:
 
     async def delete_product(self, product_id: int) -> bool:
         async with self.pool.acquire() as conn:
-            result = await conn.execute("DELETE FROM products WHERE id = $1", product_id)
-            return int(result.split()[-1]) > 0
+            try:
+                result = await conn.execute("DELETE FROM products WHERE id = $1", product_id)
+                return int(result.split()[-1]) > 0
+            except asyncpg.ForeignKeyViolationError:
+                return False
 
     async def toggle_product_availability(self, product_id: int) -> bool | None:
         async with self.pool.acquire() as conn:
@@ -751,6 +796,29 @@ class Database:
                 }
                 for r in rows
             ]
+
+
+    async def clear_all_tables(self) -> None:
+        async with self.pool.acquire() as conn:
+            await conn.execute("TRUNCATE TABLE "
+                "users, "
+                "warehouse_transactions, warehouse_items, "
+                "order_status_log, order_items, orders, "
+                "cart_items, carts, "
+                "products, categories, daily_sales "
+                "CASCADE")
+
+    async def export_all_data(self) -> dict:
+        async with self.pool.acquire() as conn:
+            tables = {}
+            for table in (
+                "users", "categories", "products", "orders", "order_items",
+                "order_status_log", "carts", "cart_items",
+                "warehouse_items", "warehouse_transactions", "daily_sales",
+            ):
+                rows = await conn.fetch(f"SELECT * FROM {table} ORDER BY id")
+                tables[table] = [dict(r) for r in rows]
+            return tables
 
 
 db = Database()
