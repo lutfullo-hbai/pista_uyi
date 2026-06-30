@@ -24,7 +24,7 @@ def is_admin(user_id: int) -> bool:
 async def start_handler(message: types.Message):
     keyboard = admin_keyboard() if is_admin(message.from_user.id) else main_keyboard()
     await message.answer(
-        "Assalomu alaykum! Qurut botiga xush kelibsiz.\n\n"
+        "Assalomu alaykum! Pista Uyi botiga xush kelibsiz.\n\n"
         "Pastdagi tugma orqali magazinga kirishingiz mumkin.",
         reply_markup=keyboard,
     )

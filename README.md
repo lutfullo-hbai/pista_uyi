@@ -1,4 +1,4 @@
-# Qurut - E-commerce Telegram Bot + Web API
+# Pista Uyi - E-commerce Telegram Bot + Web API
 
 Telegram bot va FastAPI orqali e-commerce platformasi. Foydalanuvchilar Telegram orqali buyurtma beradilar, adminlar webdan yoki botdan boshqaradilar.
 
@@ -50,7 +50,7 @@ tests/                  # Unit testlar
 1. **Repository klonlash**
 ```bash
 git clone <repo>
-cd qurut
+cd pista_uyi
 ```
 
 2. **Virtual Environment yaratish**
@@ -70,7 +70,7 @@ pip install -r requirements.txt
 ```env
 BOT_TOKEN=your_bot_token_here
 CHANNEL_ID=@your_channel_name  # yoki -100123456789
-DATABASE_URL=postgresql://user:password@localhost:5432/qurut
+DATABASE_URL=postgresql://user:password@localhost:5432/pista_uyi
 WEB_APP_URL=http://localhost:3000
 ADMIN_IDS=[123456789, 987654321]
 JWT_SECRET_KEY=your-secret-key-here
@@ -116,7 +116,7 @@ POST /api/orders
   "items": [
     {
       "product_id": 1,
-      "name": "Qurut",
+      "name": "Pista",
       "quantity": 2,
       "price": 15000
     }
