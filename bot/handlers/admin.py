@@ -269,7 +269,9 @@ async def list_products(message: types.Message):
         lines = []
         for p in products:
             status = "✅" if p["is_available"] else "❌"
-            cat_name = cats.get(p["category_id"], "?")
+            cat_name = cats.get(p["category_id"]) if p["category_id"] else None
+            if cat_name is None:
+                cat_name = "Kategoriya yo'q"
             lines.append(
                 f"{status} #{p['id']} <b>{p['name']}</b> — {p['price']:,.0f} so'm\n"
                 f"   Kategoriya: {cat_name}"

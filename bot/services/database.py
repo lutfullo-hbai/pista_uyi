@@ -802,6 +802,11 @@ class Database:
         async with self.pool.acquire() as conn:
             await conn.execute("DELETE FROM cart_items")
             await conn.execute("DELETE FROM carts")
+            await conn.execute("""
+                DELETE FROM products WHERE id NOT IN (
+                    SELECT DISTINCT product_id FROM order_items WHERE product_id IS NOT NULL
+                )
+            """)
             await conn.execute("UPDATE products SET is_available = FALSE, category_id = NULL")
             await conn.execute("DELETE FROM categories")
 
