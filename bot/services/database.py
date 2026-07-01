@@ -174,7 +174,7 @@ class Database:
             await conn.execute("ALTER TABLE warehouse_items ADD COLUMN IF NOT EXISTS name VARCHAR(255)")
             await conn.execute("""
                 UPDATE warehouse_items wi
-                SET name = COALESCE((SELECT name FROM products WHERE id = wi.product_id), 'Noma\'lum')
+                SET name = COALESCE((SELECT name FROM products WHERE id = wi.product_id), 'Noma''lum')
                 WHERE wi.name IS NULL OR wi.name = ''
             """)
             await conn.execute("ALTER TABLE warehouse_items ALTER COLUMN name SET NOT NULL")
