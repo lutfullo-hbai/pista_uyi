@@ -260,7 +260,7 @@ async def list_products(message: types.Message):
         return
     
     try:
-        products = await db.get_all_products_admin()
+        products = await db.get_all_products()
         if not products:
             await message.answer("Hali mahsulotlar yo'q.")
             return
@@ -268,7 +268,7 @@ async def list_products(message: types.Message):
         cats = {c["id"]: c["name"] for c in await db.get_categories()}
         lines = []
         for p in products:
-            status = "✅" if p["is_available"] else "❌"
+            status = "✅"
             cat_name = cats.get(p["category_id"]) if p["category_id"] else None
             if cat_name is None:
                 cat_name = "Kategoriya yo'q"
