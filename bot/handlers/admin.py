@@ -370,17 +370,17 @@ async def edit_product_price(message: types.Message, state: FSMContext):
     value = message.text.strip()
     if value == "-":
         await state.update_data(price=None)
-        await _edit_next_category(state)
+        await _edit_next_category(message, state)
         return
     price = parse_price_input(value)
     if price is None:
         await message.answer("Noto'g'ri narx. Qaytadan kiriting (masalan: 30000) yoki «-» tashlab ketish:")
         return
     await state.update_data(price=price)
-    await _edit_next_category(state)
+    await _edit_next_category(message, state)
 
 
-async def _edit_next_category(state: FSMContext):
+async def _edit_next_category(message: types.Message, state: FSMContext):
     await state.set_state(EditProductForm.image)
     data = await state.get_data()
     product = data["_product"]
