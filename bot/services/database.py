@@ -171,25 +171,27 @@ class Database:
                 DROP CONSTRAINT IF EXISTS warehouse_items_product_id_fkey
             """)
 
-            await conn.execute("ALTER TABLE warehouse_items ADD COLUMN name VARCHAR(255)")
+            await conn.execute("ALTER TABLE warehouse_items ADD COLUMN IF NOT EXISTS name VARCHAR(255)")
             await conn.execute("""
                 UPDATE warehouse_items wi
                 SET name = COALESCE((SELECT name FROM products WHERE id = wi.product_id), 'Noma\'lum')
+                WHERE wi.name IS NULL OR wi.name = ''
             """)
             await conn.execute("ALTER TABLE warehouse_items ALTER COLUMN name SET NOT NULL")
-            await conn.execute("ALTER TABLE warehouse_items ADD COLUMN unit VARCHAR(20) NOT NULL DEFAULT 'dona'")
+            await conn.execute("ALTER TABLE warehouse_items ADD COLUMN IF NOT EXISTS unit VARCHAR(20) NOT NULL DEFAULT 'dona'")
 
             await conn.execute("""
                 ALTER TABLE warehouse_transactions
-                ADD COLUMN item_id INTEGER REFERENCES warehouse_items(id) ON DELETE CASCADE
+                ADD COLUMN IF NOT EXISTS item_id INTEGER REFERENCES warehouse_items(id) ON DELETE CASCADE
             """)
             await conn.execute("""
                 UPDATE warehouse_transactions wt
                 SET item_id = (SELECT id FROM warehouse_items wi WHERE wi.product_id = wt.product_id)
+                WHERE wt.item_id IS NULL
             """)
 
-            await conn.execute("ALTER TABLE warehouse_items DROP COLUMN product_id")
-            await conn.execute("ALTER TABLE warehouse_transactions DROP COLUMN product_id")
+            await conn.execute("ALTER TABLE warehouse_items DROP COLUMN IF EXISTS product_id")
+            await conn.execute("ALTER TABLE warehouse_transactions DROP COLUMN IF EXISTS product_id")
 
             logger.info("Warehouse schema migration complete.")
         except Exception as e:
