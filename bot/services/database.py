@@ -12,134 +12,138 @@ class Database:
         if self.pool:
             return
         pool = await asyncpg.create_pool(settings.effective_database_url)
-
-        async with pool.acquire() as conn:
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS app_users (
-                    user_id BIGINT PRIMARY KEY,
-                    username VARCHAR(255),
-                    first_name VARCHAR(255),
-                    last_name VARCHAR(255),
-                    language_code VARCHAR(10),
-                    is_premium BOOLEAN DEFAULT FALSE,
-                    first_seen TIMESTAMPTZ DEFAULT NOW(),
-                    last_seen TIMESTAMPTZ DEFAULT NOW()
-                )
-            """)
-
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS categories (
-                    id SERIAL PRIMARY KEY,
-                    name VARCHAR(255) NOT NULL,
-                    created_at TIMESTAMPTZ DEFAULT NOW()
-                )
-            """)
-
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS products (
-                    id SERIAL PRIMARY KEY,
-                    category_id INTEGER REFERENCES categories(id) ON DELETE CASCADE,
-                    name VARCHAR(255) NOT NULL,
-                    description TEXT,
-                    price NUMERIC(12, 2) NOT NULL,
-                    image_url TEXT,
-                    is_available BOOLEAN DEFAULT TRUE,
-                    created_at TIMESTAMPTZ DEFAULT NOW()
-                )
-            """)
-
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS orders (
-                    id SERIAL PRIMARY KEY,
-                    user_id BIGINT NOT NULL,
-                    user_name VARCHAR(255),
-                    phone VARCHAR(20),
-                    address TEXT,
-                    total_amount NUMERIC(12, 2) NOT NULL,
-                    status VARCHAR(20) DEFAULT 'pending',
-                    created_at TIMESTAMPTZ DEFAULT NOW()
-                )
-            """)
-
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS order_items (
-                    id SERIAL PRIMARY KEY,
-                    order_id INTEGER REFERENCES orders(id) ON DELETE CASCADE,
-                    product_id INTEGER REFERENCES products(id),
-                    product_name VARCHAR(255) NOT NULL,
-                    quantity INTEGER NOT NULL,
-                    price NUMERIC(12, 2) NOT NULL
-                )
-            """)
-
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS order_status_log (
-                    id SERIAL PRIMARY KEY,
-                    order_id INTEGER REFERENCES orders(id) ON DELETE CASCADE,
-                    old_status VARCHAR(20),
-                    new_status VARCHAR(20) NOT NULL,
-                    changed_by BIGINT NOT NULL,
-                    created_at TIMESTAMPTZ DEFAULT NOW()
-                )
-            """)
-
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS carts (
-                    id SERIAL PRIMARY KEY,
-                    user_id BIGINT NOT NULL UNIQUE,
-                    created_at TIMESTAMPTZ DEFAULT NOW(),
-                    updated_at TIMESTAMPTZ DEFAULT NOW()
-                )
-            """)
-
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS cart_items (
-                    id SERIAL PRIMARY KEY,
-                    cart_id INTEGER REFERENCES carts(id) ON DELETE CASCADE,
-                    product_id INTEGER REFERENCES products(id) ON DELETE CASCADE,
-                    quantity INTEGER NOT NULL,
-                    added_at TIMESTAMPTZ DEFAULT NOW(),
-                    UNIQUE(cart_id, product_id)
-                )
-            """)
-
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS warehouse_items (
-                    id SERIAL PRIMARY KEY,
-                    name VARCHAR(255) NOT NULL,
-                    unit VARCHAR(20) NOT NULL DEFAULT 'dona',
-                    quantity NUMERIC(12, 2) NOT NULL DEFAULT 0,
-                    min_quantity NUMERIC(12, 2) NOT NULL DEFAULT 0,
-                    last_updated TIMESTAMPTZ DEFAULT NOW()
-                )
-            """)
-
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS warehouse_transactions (
-                    id SERIAL PRIMARY KEY,
-                    item_id INTEGER REFERENCES warehouse_items(id) ON DELETE CASCADE,
-                    quantity_change NUMERIC(12, 2) NOT NULL,
-                    transaction_type VARCHAR(20) NOT NULL,
-                    notes TEXT,
-                    created_by BIGINT NOT NULL,
-                    created_at TIMESTAMPTZ DEFAULT NOW()
-                )
-            """)
-
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS daily_sales (
-                    id SERIAL PRIMARY KEY,
-                    total_amount NUMERIC(12, 2) NOT NULL,
-                    notes TEXT,
-                    sale_date DATE NOT NULL DEFAULT CURRENT_DATE,
-                    recorded_by BIGINT NOT NULL,
-                    created_at TIMESTAMPTZ DEFAULT NOW()
-                )
-            """)
-
-            await self._migrate_warehouse(conn)
-
         self.pool = pool
+
+        try:
+            async with self.pool.acquire() as conn:
+                await conn.execute("""
+                    CREATE TABLE IF NOT EXISTS app_users (
+                        user_id BIGINT PRIMARY KEY,
+                        username VARCHAR(255),
+                        first_name VARCHAR(255),
+                        last_name VARCHAR(255),
+                        language_code VARCHAR(10),
+                        is_premium BOOLEAN DEFAULT FALSE,
+                        first_seen TIMESTAMPTZ DEFAULT NOW(),
+                        last_seen TIMESTAMPTZ DEFAULT NOW()
+                    )
+                """)
+
+                await conn.execute("""
+                    CREATE TABLE IF NOT EXISTS categories (
+                        id SERIAL PRIMARY KEY,
+                        name VARCHAR(255) NOT NULL,
+                        created_at TIMESTAMPTZ DEFAULT NOW()
+                    )
+                """)
+
+                await conn.execute("""
+                    CREATE TABLE IF NOT EXISTS products (
+                        id SERIAL PRIMARY KEY,
+                        category_id INTEGER REFERENCES categories(id) ON DELETE CASCADE,
+                        name VARCHAR(255) NOT NULL,
+                        description TEXT,
+                        price NUMERIC(12, 2) NOT NULL,
+                        image_url TEXT,
+                        is_available BOOLEAN DEFAULT TRUE,
+                        created_at TIMESTAMPTZ DEFAULT NOW()
+                    )
+                """)
+
+                await conn.execute("""
+                    CREATE TABLE IF NOT EXISTS orders (
+                        id SERIAL PRIMARY KEY,
+                        user_id BIGINT NOT NULL,
+                        user_name VARCHAR(255),
+                        phone VARCHAR(20),
+                        address TEXT,
+                        total_amount NUMERIC(12, 2) NOT NULL,
+                        status VARCHAR(20) DEFAULT 'pending',
+                        created_at TIMESTAMPTZ DEFAULT NOW()
+                    )
+                """)
+
+                await conn.execute("""
+                    CREATE TABLE IF NOT EXISTS order_items (
+                        id SERIAL PRIMARY KEY,
+                        order_id INTEGER REFERENCES orders(id) ON DELETE CASCADE,
+                        product_id INTEGER REFERENCES products(id),
+                        product_name VARCHAR(255) NOT NULL,
+                        quantity INTEGER NOT NULL,
+                        price NUMERIC(12, 2) NOT NULL
+                    )
+                """)
+
+                await conn.execute("""
+                    CREATE TABLE IF NOT EXISTS order_status_log (
+                        id SERIAL PRIMARY KEY,
+                        order_id INTEGER REFERENCES orders(id) ON DELETE CASCADE,
+                        old_status VARCHAR(20),
+                        new_status VARCHAR(20) NOT NULL,
+                        changed_by BIGINT NOT NULL,
+                        created_at TIMESTAMPTZ DEFAULT NOW()
+                    )
+                """)
+
+                await conn.execute("""
+                    CREATE TABLE IF NOT EXISTS carts (
+                        id SERIAL PRIMARY KEY,
+                        user_id BIGINT NOT NULL UNIQUE,
+                        created_at TIMESTAMPTZ DEFAULT NOW(),
+                        updated_at TIMESTAMPTZ DEFAULT NOW()
+                    )
+                """)
+
+                await conn.execute("""
+                    CREATE TABLE IF NOT EXISTS cart_items (
+                        id SERIAL PRIMARY KEY,
+                        cart_id INTEGER REFERENCES carts(id) ON DELETE CASCADE,
+                        product_id INTEGER REFERENCES products(id) ON DELETE CASCADE,
+                        quantity INTEGER NOT NULL,
+                        added_at TIMESTAMPTZ DEFAULT NOW(),
+                        UNIQUE(cart_id, product_id)
+                    )
+                """)
+
+                await conn.execute("""
+                    CREATE TABLE IF NOT EXISTS warehouse_items (
+                        id SERIAL PRIMARY KEY,
+                        name VARCHAR(255) NOT NULL,
+                        unit VARCHAR(20) NOT NULL DEFAULT 'dona',
+                        quantity NUMERIC(12, 2) NOT NULL DEFAULT 0,
+                        min_quantity NUMERIC(12, 2) NOT NULL DEFAULT 0,
+                        last_updated TIMESTAMPTZ DEFAULT NOW()
+                    )
+                """)
+
+                await conn.execute("""
+                    CREATE TABLE IF NOT EXISTS warehouse_transactions (
+                        id SERIAL PRIMARY KEY,
+                        item_id INTEGER REFERENCES warehouse_items(id) ON DELETE CASCADE,
+                        quantity_change NUMERIC(12, 2) NOT NULL,
+                        transaction_type VARCHAR(20) NOT NULL,
+                        notes TEXT,
+                        created_by BIGINT NOT NULL,
+                        created_at TIMESTAMPTZ DEFAULT NOW()
+                    )
+                """)
+
+                await conn.execute("""
+                    CREATE TABLE IF NOT EXISTS daily_sales (
+                        id SERIAL PRIMARY KEY,
+                        total_amount NUMERIC(12, 2) NOT NULL,
+                        notes TEXT,
+                        sale_date DATE NOT NULL DEFAULT CURRENT_DATE,
+                        recorded_by BIGINT NOT NULL,
+                        created_at TIMESTAMPTZ DEFAULT NOW()
+                    )
+                """)
+
+                await self._migrate_warehouse(conn)
+        except Exception:
+            self.pool = None
+            await pool.close()
+            raise
 
     async def close(self):
         if self.pool:
