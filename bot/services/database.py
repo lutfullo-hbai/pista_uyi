@@ -137,9 +137,57 @@ class Database:
                 )
             """)
 
+            await self._migrate_warehouse(conn)
+
     async def close(self):
         if self.pool:
             await self.pool.close()
+
+    async def _migrate_warehouse(self, conn):
+        """Migrate old warehouse schema (product_id FK) to new independent schema."""
+        try:
+            row = await conn.fetchrow("""
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name = 'warehouse_items' AND column_name = 'product_id'
+            """)
+            if not row:
+                return
+
+            logger = __import__('logging').getLogger(__name__)
+            logger.info("Migrating warehouse schema (product_id → name/unit)...")
+
+            await conn.execute("""
+                ALTER TABLE warehouse_transactions
+                DROP CONSTRAINT IF EXISTS warehouse_transactions_product_id_fkey
+            """)
+            await conn.execute("""
+                ALTER TABLE warehouse_items
+                DROP CONSTRAINT IF EXISTS warehouse_items_product_id_fkey
+            """)
+
+            await conn.execute("""
+                UPDATE warehouse_items wi
+                SET name = COALESCE((SELECT name FROM products WHERE id = wi.product_id), 'Noma\'lum')
+            """)
+            await conn.execute("ALTER TABLE warehouse_items ALTER COLUMN name SET NOT NULL")
+            await conn.execute("ALTER TABLE warehouse_items ADD COLUMN unit VARCHAR(20) NOT NULL DEFAULT 'dona'")
+
+            await conn.execute("""
+                ALTER TABLE warehouse_transactions
+                ADD COLUMN item_id INTEGER REFERENCES warehouse_items(id) ON DELETE CASCADE
+            """)
+            await conn.execute("""
+                UPDATE warehouse_transactions wt
+                SET item_id = (SELECT id FROM warehouse_items wi WHERE wi.product_id = wt.product_id)
+            """)
+
+            await conn.execute("ALTER TABLE warehouse_items DROP COLUMN product_id")
+            await conn.execute("ALTER TABLE warehouse_transactions DROP COLUMN product_id")
+
+            logger.info("Warehouse schema migration complete.")
+        except Exception as e:
+            __import__('logging').getLogger(__name__).error("Warehouse migration failed: %s", e)
+            raise
 
     # ── Users ──
 
