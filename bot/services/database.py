@@ -11,9 +11,9 @@ class Database:
     async def connect(self):
         if self.pool:
             return
-        self.pool = await asyncpg.create_pool(settings.effective_database_url)
+        pool = await asyncpg.create_pool(settings.effective_database_url)
 
-        async with self.pool.acquire() as conn:
+        async with pool.acquire() as conn:
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS app_users (
                     user_id BIGINT PRIMARY KEY,
@@ -139,6 +139,8 @@ class Database:
 
             await self._migrate_warehouse(conn)
 
+        self.pool = pool
+
     async def close(self):
         if self.pool:
             await self.pool.close()
@@ -165,6 +167,7 @@ class Database:
                 DROP CONSTRAINT IF EXISTS warehouse_items_product_id_fkey
             """)
 
+            await conn.execute("ALTER TABLE warehouse_items ADD COLUMN name VARCHAR(255)")
             await conn.execute("""
                 UPDATE warehouse_items wi
                 SET name = COALESCE((SELECT name FROM products WHERE id = wi.product_id), 'Noma\'lum')
