@@ -106,7 +106,8 @@ class Database:
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS warehouse_items (
                     id SERIAL PRIMARY KEY,
-                    product_id INTEGER REFERENCES products(id) ON DELETE CASCADE UNIQUE,
+                    name VARCHAR(255) NOT NULL,
+                    unit VARCHAR(20) NOT NULL DEFAULT 'dona',
                     quantity NUMERIC(12, 2) NOT NULL DEFAULT 0,
                     min_quantity NUMERIC(12, 2) NOT NULL DEFAULT 0,
                     last_updated TIMESTAMPTZ DEFAULT NOW()
@@ -116,7 +117,7 @@ class Database:
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS warehouse_transactions (
                     id SERIAL PRIMARY KEY,
-                    product_id INTEGER REFERENCES products(id) ON DELETE CASCADE,
+                    item_id INTEGER REFERENCES warehouse_items(id) ON DELETE CASCADE,
                     quantity_change NUMERIC(12, 2) NOT NULL,
                     transaction_type VARCHAR(20) NOT NULL,
                     notes TEXT,
@@ -326,6 +327,20 @@ class Database:
                 "SELECT * FROM orders WHERE user_id = $1 ORDER BY created_at DESC",
                 user_id,
             )
+            return [dict(r) for r in rows]
+
+    async def get_orders_by_date(self, order_date: str | date, status: str | None = None) -> list[dict]:
+        async with self.pool.acquire() as conn:
+            if status:
+                rows = await conn.fetch(
+                    "SELECT * FROM orders WHERE created_at::date = $1 AND status = $2 ORDER BY created_at DESC",
+                    order_date, status,
+                )
+            else:
+                rows = await conn.fetch(
+                    "SELECT * FROM orders WHERE created_at::date = $1 ORDER BY created_at DESC",
+                    order_date,
+                )
             return [dict(r) for r in rows]
 
     async def update_order_status(self, order_id: int, new_status: str, changed_by: int) -> bool:
@@ -573,94 +588,120 @@ class Database:
     async def get_warehouse_items(self) -> list[dict]:
         async with self.pool.acquire() as conn:
             rows = await conn.fetch("""
-                SELECT wi.id, wi.product_id, wi.quantity, wi.min_quantity, wi.last_updated,
-                       p.name as product_name, p.price
-                FROM warehouse_items wi
-                JOIN products p ON wi.product_id = p.id
-                ORDER BY p.name
+                SELECT * FROM warehouse_items
+                ORDER BY name
             """)
             return [dict(r) for r in rows]
 
-    async def get_warehouse_item(self, product_id: int) -> dict | None:
+    async def get_warehouse_item(self, item_id: int) -> dict | None:
         async with self.pool.acquire() as conn:
-            row = await conn.fetchrow("""
-                SELECT wi.id, wi.product_id, wi.quantity, wi.min_quantity, wi.last_updated,
-                       p.name as product_name, p.price
-                FROM warehouse_items wi
-                JOIN products p ON wi.product_id = p.id
-                WHERE wi.product_id = $1
-            """, product_id)
+            row = await conn.fetchrow(
+                "SELECT * FROM warehouse_items WHERE id = $1", item_id
+            )
             return dict(row) if row else None
 
-    async def init_warehouse_item(self, product_id: int, quantity: float = 0, min_quantity: float = 0) -> bool:
+    async def create_warehouse_item(self, name: str, unit: str = "dona", quantity: float = 0, min_quantity: float = 0) -> int | None:
         async with self.pool.acquire() as conn:
             try:
-                await conn.execute("""
-                    INSERT INTO warehouse_items (product_id, quantity, min_quantity)
-                    VALUES ($1, $2, $3)
-                    ON CONFLICT (product_id)
-                    DO UPDATE SET quantity = $2, min_quantity = $3, last_updated = NOW()
-                """, product_id, quantity, min_quantity)
+                return await conn.fetchval("""
+                    INSERT INTO warehouse_items (name, unit, quantity, min_quantity)
+                    VALUES ($1, $2, $3, $4)
+                    RETURNING id
+                """, name, unit, quantity, min_quantity)
+            except Exception:
+                return None
+
+    async def update_warehouse_item(self, item_id: int, name: str | None = None, unit: str | None = None, min_quantity: float | None = None) -> bool:
+        async with self.pool.acquire() as conn:
+            try:
+                sets = []
+                params = []
+                i = 1
+                if name is not None:
+                    sets.append(f"name = ${i}")
+                    params.append(name)
+                    i += 1
+                if unit is not None:
+                    sets.append(f"unit = ${i}")
+                    params.append(unit)
+                    i += 1
+                if min_quantity is not None:
+                    sets.append(f"min_quantity = ${i}")
+                    params.append(min_quantity)
+                    i += 1
+                if not sets:
+                    return False
+                params.append(item_id)
+                await conn.execute(
+                    f"UPDATE warehouse_items SET {', '.join(sets)} WHERE id = ${i}",
+                    *params,
+                )
                 return True
             except Exception:
                 return False
 
-    async def add_warehouse_stock(self, product_id: int, quantity: float, notes: str | None, created_by: int) -> bool:
+    async def delete_warehouse_item(self, item_id: int) -> bool:
+        async with self.pool.acquire() as conn:
+            try:
+                result = await conn.execute("DELETE FROM warehouse_items WHERE id = $1", item_id)
+                return int(result.split()[-1]) > 0
+            except Exception:
+                return False
+
+    async def add_warehouse_stock(self, item_id: int, quantity: float, notes: str | None, created_by: int) -> bool:
         if quantity <= 0:
             return False
         async with self.pool.acquire() as conn:
             try:
+                await conn.execute(
+                    "UPDATE warehouse_items SET quantity = quantity + $1, last_updated = NOW() WHERE id = $2",
+                    quantity, item_id,
+                )
                 await conn.execute("""
-                    INSERT INTO warehouse_items (product_id, quantity)
-                    VALUES ($1, $2)
-                    ON CONFLICT (product_id)
-                    DO UPDATE SET quantity = warehouse_items.quantity + $2, last_updated = NOW()
-                """, product_id, quantity)
-                await conn.execute("""
-                    INSERT INTO warehouse_transactions (product_id, quantity_change, transaction_type, notes, created_by)
+                    INSERT INTO warehouse_transactions (item_id, quantity_change, transaction_type, notes, created_by)
                     VALUES ($1, $2, 'in', $3, $4)
-                """, product_id, quantity, notes, created_by)
+                """, item_id, quantity, notes, created_by)
                 return True
             except Exception:
                 return False
 
-    async def remove_warehouse_stock(self, product_id: int, quantity: float, notes: str | None, created_by: int) -> bool:
+    async def remove_warehouse_stock(self, item_id: int, quantity: float, notes: str | None, created_by: int) -> bool:
         if quantity <= 0:
             return False
         async with self.pool.acquire() as conn:
             try:
                 row = await conn.fetchrow(
-                    "SELECT quantity FROM warehouse_items WHERE product_id = $1", product_id
+                    "SELECT quantity FROM warehouse_items WHERE id = $1", item_id
                 )
                 if not row or row["quantity"] < quantity:
                     return False
                 await conn.execute(
-                    "UPDATE warehouse_items SET quantity = quantity - $1, last_updated = NOW() WHERE product_id = $2",
-                    quantity, product_id,
+                    "UPDATE warehouse_items SET quantity = quantity - $1, last_updated = NOW() WHERE id = $2",
+                    quantity, item_id,
                 )
                 await conn.execute("""
-                    INSERT INTO warehouse_transactions (product_id, quantity_change, transaction_type, notes, created_by)
+                    INSERT INTO warehouse_transactions (item_id, quantity_change, transaction_type, notes, created_by)
                     VALUES ($1, $2, 'out', $3, $4)
-                """, product_id, -quantity, notes, created_by)
+                """, item_id, -quantity, notes, created_by)
                 return True
             except Exception:
                 return False
 
-    async def get_warehouse_transactions(self, product_id: int | None = None, limit: int = 50) -> list[dict]:
+    async def get_warehouse_transactions(self, item_id: int | None = None, limit: int = 50) -> list[dict]:
         async with self.pool.acquire() as conn:
-            if product_id:
+            if item_id:
                 rows = await conn.fetch("""
-                    SELECT wt.*, p.name as product_name
+                    SELECT wt.*, wi.name as product_name
                     FROM warehouse_transactions wt
-                    JOIN products p ON wt.product_id = p.id
-                    WHERE wt.product_id = $1
+                    JOIN warehouse_items wi ON wt.item_id = wi.id
+                    WHERE wt.item_id = $1
                     ORDER BY wt.created_at DESC LIMIT $2
-                """, product_id, limit)
+                """, item_id, limit)
             else:
                 rows = await conn.fetch("""
-                    SELECT wt.*, p.name as product_name
+                    SELECT wt.*, wi.name as product_name
                     FROM warehouse_transactions wt
-                    JOIN products p ON wt.product_id = p.id
+                    JOIN warehouse_items wi ON wt.item_id = wi.id
                     ORDER BY wt.created_at DESC LIMIT $1
                 """, limit)
             return [dict(r) for r in rows]
@@ -669,13 +710,8 @@ class Database:
         async with self.pool.acquire() as conn:
             total_items = await conn.fetchval("SELECT COUNT(*) FROM warehouse_items")
             total_stock = await conn.fetchval(
-                "SELECT COALESCE(SUM(wi.quantity), 0) FROM warehouse_items wi"
+                "SELECT COALESCE(SUM(quantity), 0) FROM warehouse_items"
             )
-            total_value = await conn.fetchval("""
-                SELECT COALESCE(SUM(wi.quantity * p.price), 0)
-                FROM warehouse_items wi
-                JOIN products p ON wi.product_id = p.id
-            """)
             low_stock = await conn.fetchval("""
                 SELECT COUNT(*) FROM warehouse_items
                 WHERE quantity <= min_quantity
@@ -683,7 +719,6 @@ class Database:
             return {
                 "total_items": total_items,
                 "total_stock_quantity": float(total_stock),
-                "total_stock_value": float(total_value),
                 "low_stock_items": low_stock,
             }
 

@@ -3,7 +3,7 @@ import json
 import os
 import uuid
 import zipfile
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 from aiogram import Router, types, F
@@ -36,8 +36,12 @@ class CategoryForm(StatesGroup):
 
 
 class EditProductForm(StatesGroup):
-    field = State()
-    value = State()
+    product_id = State()
+    name = State()
+    description = State()
+    price = State()
+    image = State()
+    category_id = State()
 
 
 class OrderStatusForm(StatesGroup):
@@ -107,15 +111,18 @@ async def admin_panel(message: types.Message):
             "/edit_product - Mahsulotni tahrirlash\n"
             "/delete_product - Mahsulotni o'chirish\n"
             "/toggle_product - Mahsulotni aktiv/passiv qilish\n"
-            "/orders - Buyurtmalar\n"
+            "/orders - Bugungi buyurtmalar\n"
+            "/orders YYYY-MM-DD - Sana bo'yicha buyurtmalar\n"
             "/order - Buyurtma tafsilotlari\n"
             "/status - Buyurtma statusini o'zgartirish\n"
             "/broadcast - Xabar yuborish\n\n"
             "📦 <b>Ombor:</b>\n"
             "/ombor - Ombor holati\n"
+            "/ombor_add - Ombor mahsulot qo'shish\n"
             "/ombor_kirim - Stock qo'shish\n"
             "/ombor_chiqim - Stock chiqarish\n"
-            "/ombor_harakatlar - Harakatlar tarixi\n\n"
+            "/ombor_harakatlar - Harakatlar tarixi\n"
+            "/ombor_item_delete - Mahsulotni o'chirish\n\n"
             "💰 <b>Kunlik tushum:</b>\n"
             "/kunlik_tushum - Tushum qo'shish\n"
             "/kunlik_tushumlar - Tushumlar ro'yxati\n"
@@ -295,68 +302,183 @@ async def list_products(message: types.Message):
 async def edit_product_start(message: types.Message, state: FSMContext):
     if not is_admin(message.from_user.id):
         return
-    await state.set_state(EditProductForm.field)
-    await message.answer(
-        "Mahsulot ID sini va o'zgartirmoqchi bo'lgan maydonni kiriting:\n"
-        "Format: <code>ID maydon</code>\n\n"
-        "Maydonlar: name, description, price, image_url\n"
-        "Misol: <code>5 name</code>",
-        parse_mode="HTML",
-    )
+    await state.set_state(EditProductForm.product_id)
+    await message.answer("Mahsulot ID sini kiriting:")
 
 
-@router.message(EditProductForm.field)
-async def edit_product_field(message: types.Message, state: FSMContext):
-    parts = message.text.strip().split(maxsplit=1)
-    if len(parts) != 2:
-        await message.answer("Format: <code>ID maydon</code> (masalan: <code>5 name</code>)", parse_mode="HTML")
-        return
+@router.message(EditProductForm.product_id)
+async def edit_product_id(message: types.Message, state: FSMContext):
     try:
-        product_id = int(parts[0])
+        product_id = int(message.text.strip())
     except ValueError:
-        await message.answer("Noto'g'ri ID.")
-        return
-    field = parts[1].strip()
-    if field not in ("name", "description", "price", "image_url"):
-        await message.answer("Noto'g'ri maydon. Tanlang: name, description, price, image_url")
+        await message.answer("Noto'g'ri ID. Qaytadan kiriting:")
         return
     product = await db.get_product(product_id)
     if not product:
         await message.answer("Mahsulot topilmadi.")
         await state.clear()
         return
-    await state.update_data(product_id=product_id, field=field)
-    await state.set_state(EditProductForm.value)
-    current = product.get(field, "—")
-    await message.answer(f"Joriy qiymat: <code>{current}</code>\nYangi qiymatni kiriting:", parse_mode="HTML")
+    await state.update_data(product_id=product_id, _product=product)
+    await state.set_state(EditProductForm.name)
+    await message.answer(
+        f"<b>Yangi nom</b> (joriy: <code>{product['name']}</code>)\n"
+        "Kiriting yoki «-» yozib tashlab ketish:",
+        parse_mode="HTML",
+    )
 
 
-@router.message(EditProductForm.value)
-async def edit_product_value(message: types.Message, state: FSMContext):
+@router.message(EditProductForm.name)
+async def edit_product_name(message: types.Message, state: FSMContext):
+    value = message.text.strip()
+    data = await state.get_data()
+    product = data["_product"]
+    if value == "-":
+        await state.update_data(name=None)
+    else:
+        if len(value) < 2:
+            await message.answer("Nom 2 ta belgidan kam bo'lmasligi kerak.")
+            return
+        await state.update_data(name=value)
+    await state.set_state(EditProductForm.description)
+    desc = product.get("description") or "—"
+    await message.answer(
+        f"<b>Yangi tavsif</b> (joriy: <code>{desc}</code>)\n"
+        "Kiriting yoki «-» yozib tashlab ketish:",
+        parse_mode="HTML",
+    )
+
+
+@router.message(EditProductForm.description)
+async def edit_product_description(message: types.Message, state: FSMContext):
+    value = message.text.strip()
+    if value == "-":
+        await state.update_data(description=None)
+    else:
+        await state.update_data(description=value)
+    await state.set_state(EditProductForm.price)
+    data = await state.get_data()
+    product = data["_product"]
+    await message.answer(
+        f"<b>Yangi narx</b> (joriy: {product['price']:,.0f} so'm)\n"
+        "Kiriting yoki «-» yozib tashlab ketish:",
+        parse_mode="HTML",
+    )
+
+
+@router.message(EditProductForm.price)
+async def edit_product_price(message: types.Message, state: FSMContext):
+    value = message.text.strip()
+    if value == "-":
+        await state.update_data(price=None)
+        await _edit_next_category(state)
+        return
+    price = parse_price_input(value)
+    if price is None:
+        await message.answer("Noto'g'ri narx. Qaytadan kiriting (masalan: 30000) yoki «-» tashlab ketish:")
+        return
+    await state.update_data(price=price)
+    await _edit_next_category(state)
+
+
+async def _edit_next_category(state: FSMContext):
+    await state.set_state(EditProductForm.image)
+    data = await state.get_data()
+    product = data["_product"]
+    img = product.get("image_url") or "—"
+    await message.answer(
+        f"<b>Yangi rasm</b> (joriy: <code>{img}</code>)\n"
+        "Rasm yuboring yoki «-» yozib tashlab ketish:",
+        parse_mode="HTML",
+    )
+
+
+@router.message(EditProductForm.image, F.photo)
+async def edit_product_image_photo(message: types.Message, state: FSMContext):
+    try:
+        os.makedirs(UPLOAD_DIR, exist_ok=True)
+        photo = message.photo[-1]
+        tg_file = await message.bot.get_file(photo.file_id)
+        ext = os.path.splitext(tg_file.file_path or ".jpg")[1] or ".jpg"
+        filename = f"{uuid.uuid4().hex}{ext}"
+        filepath = os.path.join(UPLOAD_DIR, filename)
+        await message.bot.download_file(tg_file.file_path, destination=filepath)
+        await state.update_data(image_url=f"/static/uploads/{filename}")
+        await message.answer("✅ Rasm qabul qilindi.")
+        await _edit_ask_category(message, state)
+    except Exception as e:
+        logger.error("Error uploading photo: %s", e)
+        await message.answer("❌ Rasm yuklashda xatolik. Qaytadan urinib ko'ring.")
+
+
+@router.message(EditProductForm.image, F.text)
+async def edit_product_image_text(message: types.Message, state: FSMContext):
+    url = message.text.strip()
+    await state.update_data(image_url=None if url == "-" else url)
+    await _edit_ask_category(message, state)
+
+
+async def _edit_ask_category(message: types.Message, state: FSMContext):
+    categories = await db.get_categories()
+    await state.set_state(EditProductForm.category_id)
+    data = await state.get_data()
+    product = data["_product"]
+    current_cat = "—"
+    if product.get("category_id"):
+        cat = await db.get_category(product["category_id"])
+        if cat:
+            current_cat = f"{cat['name']} (ID: {cat['id']})"
+    if categories:
+        lines = "\n".join(f"{c['id']}. {c['name']}" for c in categories)
+        await message.answer(
+            f"<b>Yangi kategoriya</b> (joriy: {current_cat})\n"
+            f"Kategoriya ID sini kiriting yoki «-» tashlab ketish:\n\n{lines}",
+            parse_mode="HTML",
+        )
+    else:
+        await message.answer(
+            f"<b>Yangi kategoriya</b> (joriy: {current_cat})\n"
+            "Kategoriyalar mavjud emas. «-» yozib tashlab ketishingiz mumkin.",
+            parse_mode="HTML",
+        )
+
+
+@router.message(EditProductForm.category_id)
+async def edit_product_finish(message: types.Message, state: FSMContext):
     data = await state.get_data()
     product_id = data["product_id"]
-    field = data["field"]
-    value = message.text.strip()
     kwargs = {}
-    if field == "price":
+
+    raw = message.text.strip()
+    if raw != "-":
         try:
-            text = value.lower()
-            for word in ["sum", "so'm", "soʻm", "som", "sóm", "сум"]:
-                text = text.replace(word, "")
-            text = text.strip().replace(" ", "")
-            kwargs["price"] = float(text)
+            cat_id = int(raw)
+            cat = await db.get_category(cat_id)
+            if not cat:
+                await message.answer("Noto'g'ri kategoriya ID. Qaytadan kiriting yoki «-» tashlab ketish:")
+                return
+            kwargs["category_id"] = cat_id
         except ValueError:
-            await message.answer("Noto'g'ri narx. Qaytadan kiriting:")
+            await message.answer("Noto'g'ri ID. Qaytadan kiriting yoki «-» tashlab ketish:")
             return
-    elif field == "description":
-        kwargs["description"] = None if value == "-" else value
-    else:
-        kwargs[field] = value
+
+    for field in ("name", "description", "price", "image_url"):
+        if data.get(field) is not None:
+            kwargs[field] = data[field]
+
+    if not kwargs:
+        await message.answer("Hech qanday o'zgarish kiritilmadi.")
+        await state.clear()
+        return
+
     success = await db.update_product(product_id, **kwargs)
     if success:
-        await message.answer(f"✅ Mahsulot #{product_id} yangilandi.")
+        product = await db.get_product(product_id)
+        changed = ", ".join(kwargs.keys())
+        await message.answer(f"✅ Mahsulot #{product_id} yangilandi.\nO'zgargan: {changed}")
+        log_user_action(logger, message.from_user.id, "product_edited",
+                       f"product_id={product_id}, fields={changed}")
     else:
-        await message.answer("Xatolik yuz berdi.")
+        await message.answer("❌ Xatolik yuz berdi.")
     await state.clear()
 
 
@@ -417,10 +539,23 @@ async def list_orders(message: types.Message):
         return
     parts = message.text.strip().split()
     status_filter = parts[1].lower() if len(parts) > 1 and parts[1].lower() in VALID_STATUSES else None
-    orders = await db.get_orders(limit=20, status=status_filter)
+    date_filter = None
+    if len(parts) > 1:
+        try:
+            dt = datetime.strptime(parts[1], "%Y-%m-%d").date()
+            date_filter = dt
+        except ValueError:
+            pass
+    if date_filter:
+        orders = await db.get_orders_by_date(date_filter, status=status_filter)
+        date_str = date_filter.strftime("%d.%m.%Y")
+    else:
+        orders = await db.get_orders_by_date(date.today(), status=status_filter)
+        date_str = "Bugun"
     if not orders:
-        await message.answer("Buyurtmalar topilmadi.")
+        await message.answer(f"📅 {date_str}: Buyurtmalar topilmadi.\n\nBoshqa sana uchun: <code>/orders YYYY-MM-DD</code>", parse_mode="HTML")
         return
+    await message.answer(f"📅 <b>{date_str}</b>: {len(orders)} ta buyurtma", parse_mode="HTML")
     for order in orders:
         emoji = STATUS_EMOJI.get(order["status"], "📦")
         text = (

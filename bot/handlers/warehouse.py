@@ -14,14 +14,26 @@ router = Router()
 logger = get_logger(__name__)
 
 
+class AddWarehouseItemForm(StatesGroup):
+    name = State()
+    unit = State()
+    quantity = State()
+
+
+class EditWarehouseItemForm(StatesGroup):
+    item_id = State()
+    field = State()
+    value = State()
+
+
 class AddStockForm(StatesGroup):
-    product_id = State()
+    item_id = State()
     quantity = State()
     notes = State()
 
 
 class RemoveStockForm(StatesGroup):
-    product_id = State()
+    item_id = State()
     quantity = State()
     notes = State()
 
@@ -30,11 +42,6 @@ class DailySaleForm(StatesGroup):
     amount = State()
     notes = State()
     date = State()
-
-
-class InitWarehouseForm(StatesGroup):
-    product_id = State()
-    quantity = State()
 
 
 def is_admin(user_id: int) -> bool:
@@ -56,7 +63,6 @@ async def warehouse_dashboard(message: types.Message):
             "📦 <b>Ombor holati</b>\n\n"
             f"📊 Jami mahsulot: {stats['total_items']}\n"
             f"📦 Jami soni: {stats['total_stock_quantity']:,.0f}\n"
-            f"💰 Jami qiymati: {stats['total_stock_value']:,.0f} so'm\n"
             f"⚠ Kam qoldiq: {stats['low_stock_items']} ta\n\n"
         )
 
@@ -65,16 +71,17 @@ async def warehouse_dashboard(message: types.Message):
             for item in items:
                 warning = " ⚠" if item["quantity"] <= item["min_quantity"] else ""
                 text += (
-                    f"  #{item['product_id']} {item['product_name']} — "
-                    f"{item['quantity']:,.0f} dona{warning}\n"
+                    f"  #{item['id']} {item['name']} — "
+                    f"{item['quantity']:,.0f} {item['unit']}{warning}\n"
                 )
 
         text += (
             "\nBuyruqlar:\n"
+            "/ombor_add - Ombor mahsulot qo'shish\n"
             "/ombor_kirim - Mahsulotga stock qo'shish\n"
             "/ombor_chiqim - Mahsulotdan stock chiqarish\n"
             "/ombor_harakatlar - Ombor harakatlari\n"
-            "/ombor_init - Mahsulotni omborda boshlang'ich qiymat bilan ro'yxatdan o'tkazish"
+            "/ombor_item_delete - Mahsulotni o'chirish"
         )
         await message.answer(text, parse_mode="HTML")
     except Exception as e:
@@ -82,44 +89,58 @@ async def warehouse_dashboard(message: types.Message):
         await message.answer("❌ Xatolik yuz berdi.")
 
 
-# ── Init Warehouse Item ──
+# ── Add Warehouse Item ──
 
-@router.message(Command("ombor_init"))
-async def init_warehouse_start(message: types.Message, state: FSMContext):
+@router.message(Command("ombor_add"))
+async def add_item_start(message: types.Message, state: FSMContext):
     if not is_admin(message.from_user.id):
         return
-    await state.set_state(InitWarehouseForm.product_id)
-    await message.answer("Mahsulot ID sini kiriting:")
+    await state.set_state(AddWarehouseItemForm.name)
+    await message.answer("Mahsulot nomini kiriting:")
 
 
-@router.message(InitWarehouseForm.product_id)
-async def init_warehouse_product(message: types.Message, state: FSMContext):
-    try:
-        product_id = int(message.text.strip())
-        product = await db.get_product(product_id)
-        if not product:
-            await message.answer("Mahsulot topilmadi. Qaytadan kiriting:")
-            return
-        await state.update_data(product_id=product_id)
-        await state.set_state(InitWarehouseForm.quantity)
-        await message.answer(f"Mahsulot: <b>{product['name']}</b>\nBoshlang'ich miqdorni kiriting:", parse_mode="HTML")
-    except ValueError:
-        await message.answer("Noto'g'ri ID. Qaytadan kiriting:")
+@router.message(AddWarehouseItemForm.name)
+async def add_item_name(message: types.Message, state: FSMContext):
+    name = message.text.strip()
+    if not name:
+        await message.answer("Nom bo'sh bo'lmasligi kerak. Qaytadan kiriting:")
+        return
+    await state.update_data(name=name)
+    await state.set_state(AddWarehouseItemForm.unit)
+    await message.answer("O'lchov birligini kiriting (masalan: dona, kg, litr):")
 
 
-@router.message(InitWarehouseForm.quantity)
-async def init_warehouse_finish(message: types.Message, state: FSMContext):
+@router.message(AddWarehouseItemForm.unit)
+async def add_item_unit(message: types.Message, state: FSMContext):
+    unit = message.text.strip().lower()
+    if not unit:
+        unit = "dona"
+    await state.update_data(unit=unit)
+    await state.set_state(AddWarehouseItemForm.quantity)
+    await message.answer("Boshlang'ich miqdorni kiriting (0 qoldirish mumkin):")
+
+
+@router.message(AddWarehouseItemForm.quantity)
+async def add_item_finish(message: types.Message, state: FSMContext):
     try:
         quantity = float(message.text.strip().replace(" ", ""))
         if quantity < 0:
             await message.answer("Miqdor 0 dan kichik bo'lmasligi kerak.")
             return
         data = await state.get_data()
-        success = await db.init_warehouse_item(data["product_id"], quantity)
-        if success:
-            product = await db.get_product(data["product_id"])
-            await message.answer(f"✅ <b>{product['name']}</b> omborda ro'yxatdan o'tkazildi. Boshlang'ich: {quantity:,.0f} dona.", parse_mode="HTML")
-            log_user_action(logger, message.from_user.id, "warehouse_init", f"product_id={data['product_id']}, quantity={quantity}")
+        item_id = await db.create_warehouse_item(
+            name=data["name"],
+            unit=data["unit"],
+            quantity=quantity,
+        )
+        if item_id:
+            await message.answer(
+                f"✅ <b>{data['name']}</b> omborga qo'shildi (ID: {item_id}).\n"
+                f"Boshlang'ich: {quantity:,.0f} {data['unit']}.",
+                parse_mode="HTML",
+            )
+            log_user_action(logger, message.from_user.id, "warehouse_item_added",
+                          f"item_id={item_id}, name={data['name']}")
         else:
             await message.answer("❌ Xatolik yuz berdi.")
     except ValueError:
@@ -129,35 +150,65 @@ async def init_warehouse_finish(message: types.Message, state: FSMContext):
         await state.clear()
 
 
+# ── Delete Warehouse Item ──
+
+@router.message(Command("ombor_item_delete"))
+async def delete_item(message: types.Message):
+    if not is_admin(message.from_user.id):
+        return
+    parts = message.text.strip().split()
+    if len(parts) < 2:
+        await message.answer("Format: <code>/ombor_item_delete ID</code>", parse_mode="HTML")
+        return
+    try:
+        item_id = int(parts[1])
+    except ValueError:
+        await message.answer("Noto'g'ri ID.")
+        return
+    item = await db.get_warehouse_item(item_id)
+    if not item:
+        await message.answer("Mahsulot topilmadi.")
+        return
+    success = await db.delete_warehouse_item(item_id)
+    if success:
+        await message.answer(f"✅ <b>{item['name']}</b> ombordan o'chirildi.", parse_mode="HTML")
+        log_user_action(logger, message.from_user.id, "warehouse_item_deleted",
+                      f"item_id={item_id}")
+    else:
+        await message.answer("❌ Xatolik yuz berdi.")
+
+
 # ── Add Stock (Kirim) ──
 
 @router.message(Command("ombor_kirim"))
 async def add_stock_start(message: types.Message, state: FSMContext):
     if not is_admin(message.from_user.id):
         return
-    await state.set_state(AddStockForm.product_id)
-    products = await db.get_all_products_admin()
-    if not products:
-        await message.answer("Hali mahsulotlar yo'q. Avval mahsulot qo'shing.")
+    items = await db.get_warehouse_items()
+    if not items:
+        await message.answer("Omborda mahsulot yo'q. Avval /ombor_add orqali mahsulot qo'shing.")
         await state.clear()
         return
-    lines = "\n".join(f"#{p['id']} {p['name']}" for p in products)
+    lines = "\n".join(f"#{item['id']} {item['name']} ({item['quantity']:,.0f} {item['unit']})" for item in items)
+    await state.set_state(AddStockForm.item_id)
     await message.answer(f"Mahsulot ID sini kiriting:\n\n{lines}")
 
 
-@router.message(AddStockForm.product_id)
-async def add_stock_product(message: types.Message, state: FSMContext):
+@router.message(AddStockForm.item_id)
+async def add_stock_item(message: types.Message, state: FSMContext):
     try:
-        product_id = int(message.text.strip())
-        product = await db.get_product(product_id)
-        if not product:
+        item_id = int(message.text.strip())
+        item = await db.get_warehouse_item(item_id)
+        if not item:
             await message.answer("Mahsulot topilmadi. Qaytadan kiriting:")
             return
-        await state.update_data(product_id=product_id)
+        await state.update_data(item_id=item_id)
         await state.set_state(AddStockForm.quantity)
-        current = await db.get_warehouse_item(product_id)
-        current_text = f" (joriy: {current['quantity']:,.0f} dona)" if current else " (yangi)"
-        await message.answer(f"Mahsulot: <b>{product['name']}</b>{current_text}\nQancha qo'shiladi?", parse_mode="HTML")
+        await message.answer(
+            f"Mahsulot: <b>{item['name']}</b> (joriy: {item['quantity']:,.0f} {item['unit']})\n"
+            f"Qancha qo'shiladi?",
+            parse_mode="HTML",
+        )
     except ValueError:
         await message.answer("Noto'g'ri ID. Qaytadan kiriting:")
 
@@ -180,11 +231,15 @@ async def add_stock_quantity(message: types.Message, state: FSMContext):
 async def add_stock_finish(message: types.Message, state: FSMContext):
     notes = None if message.text.strip() == "-" else message.text.strip()
     data = await state.get_data()
-    success = await db.add_warehouse_stock(data["product_id"], data["quantity"], notes, message.from_user.id)
+    success = await db.add_warehouse_stock(data["item_id"], data["quantity"], notes, message.from_user.id)
     if success:
-        product = await db.get_product(data["product_id"])
-        await message.answer(f"✅ <b>{product['name']}</b> ga {data['quantity']:,.0f} dona qo'shildi.", parse_mode="HTML")
-        log_user_action(logger, message.from_user.id, "warehouse_stock_in", f"product_id={data['product_id']}, quantity={data['quantity']}")
+        item = await db.get_warehouse_item(data["item_id"])
+        await message.answer(
+            f"✅ <b>{item['name']}</b> ga {data['quantity']:,.0f} {item['unit']} qo'shildi.",
+            parse_mode="HTML",
+        )
+        log_user_action(logger, message.from_user.id, "warehouse_stock_in",
+                      f"item_id={data['item_id']}, quantity={data['quantity']}")
     else:
         await message.answer("❌ Xatolik yuz berdi.")
     await state.clear()
@@ -196,32 +251,35 @@ async def add_stock_finish(message: types.Message, state: FSMContext):
 async def remove_stock_start(message: types.Message, state: FSMContext):
     if not is_admin(message.from_user.id):
         return
-    await state.set_state(RemoveStockForm.product_id)
     items = await db.get_warehouse_items()
     if not items:
         await message.answer("Omborda mahsulot yo'q. Avval /ombor_kirim orqali stock qo'shing.")
         await state.clear()
         return
-    lines = "\n".join(f"#{item['product_id']} {item['product_name']} — {item['quantity']:,.0f} dona" for item in items)
+    lines = "\n".join(f"#{item['id']} {item['name']} — {item['quantity']:,.0f} {item['unit']}" for item in items)
+    await state.set_state(RemoveStockForm.item_id)
     await message.answer(f"Mahsulot ID sini kiriting:\n\n{lines}")
 
 
-@router.message(RemoveStockForm.product_id)
-async def remove_stock_product(message: types.Message, state: FSMContext):
+@router.message(RemoveStockForm.item_id)
+async def remove_stock_item(message: types.Message, state: FSMContext):
     try:
-        product_id = int(message.text.strip())
-        product = await db.get_product(product_id)
-        if not product:
+        item_id = int(message.text.strip())
+        item = await db.get_warehouse_item(item_id)
+        if not item:
             await message.answer("Mahsulot topilmadi. Qaytadan kiriting:")
             return
-        item = await db.get_warehouse_item(product_id)
-        if not item or item["quantity"] <= 0:
+        if item["quantity"] <= 0:
             await message.answer("Bu mahsulot omborda mavjud emas.")
             await state.clear()
             return
-        await state.update_data(product_id=product_id)
+        await state.update_data(item_id=item_id)
         await state.set_state(RemoveStockForm.quantity)
-        await message.answer(f"Mahsulot: <b>{product['name']}</b> (joriy: {item['quantity']:,.0f} dona)\nQancha chiqariladi?", parse_mode="HTML")
+        await message.answer(
+            f"Mahsulot: <b>{item['name']}</b> (joriy: {item['quantity']:,.0f} {item['unit']})\n"
+            f"Qancha chiqariladi?",
+            parse_mode="HTML",
+        )
     except ValueError:
         await message.answer("Noto'g'ri ID. Qaytadan kiriting:")
 
@@ -244,11 +302,15 @@ async def remove_stock_quantity(message: types.Message, state: FSMContext):
 async def remove_stock_finish(message: types.Message, state: FSMContext):
     notes = None if message.text.strip() == "-" else message.text.strip()
     data = await state.get_data()
-    success = await db.remove_warehouse_stock(data["product_id"], data["quantity"], notes, message.from_user.id)
+    success = await db.remove_warehouse_stock(data["item_id"], data["quantity"], notes, message.from_user.id)
     if success:
-        product = await db.get_product(data["product_id"])
-        await message.answer(f"✅ <b>{product['name']}</b> dan {data['quantity']:,.0f} dona chiqarildi.", parse_mode="HTML")
-        log_user_action(logger, message.from_user.id, "warehouse_stock_out", f"product_id={data['product_id']}, quantity={data['quantity']}")
+        item = await db.get_warehouse_item(data["item_id"])
+        await message.answer(
+            f"✅ <b>{item['name']}</b> dan {data['quantity']:,.0f} {item['unit']} chiqarildi.",
+            parse_mode="HTML",
+        )
+        log_user_action(logger, message.from_user.id, "warehouse_stock_out",
+                      f"item_id={data['item_id']}, quantity={data['quantity']}")
     else:
         await message.answer("❌ Xatolik yuz berdi yoki omborda yetarli mahsulot yo'q.")
     await state.clear()
@@ -275,7 +337,6 @@ async def warehouse_transactions(message: types.Message):
                 f"   Izoh: {t['notes'] or '—'}"
             )
         text = "\n\n".join(lines)
-        # Send in chunks if too long
         if len(text) > 3800:
             for chunk in [text[i:i+3800] for i in range(0, len(text), 3800)]:
                 await message.answer(chunk, parse_mode="HTML")

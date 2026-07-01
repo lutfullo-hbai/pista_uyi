@@ -70,8 +70,8 @@ async def my_orders_button(message: types.Message):
 @router.message(F.text == "📞 Bog'lanish")
 async def contact_button(message: types.Message):
     await message.answer(
-        "📞 Bog'lanish: +998 90 690 95 15\n"
-        "📩 Telegram: @Koriyev\n\n"
+        "📞 Bog'lanish: +998 001 26 62\n"
+        "📩 Telegram: @lutfulloai\n\n"
         "Savol va takliflar uchun murojaat qilishingiz mumkin ."
     )
 
@@ -141,7 +141,7 @@ async def _send_warehouse_dashboard(message_or_callback, period: str = "all"):
     low_text = ""
     if low_stock_items:
         low_text = "\n⚠ <b>Kam qoldiq:</b>\n" + "\n".join(
-            f"  • {i['product_name']} — {i['quantity']:,.0f} dona"
+            f"  • {i['name']} — {i['quantity']:,.0f} {i['unit']}"
             for i in low_stock_items[:5]
         )
 
@@ -154,7 +154,6 @@ async def _send_warehouse_dashboard(message_or_callback, period: str = "all"):
         f"📦 <b>Ombor</b> — {period_labels.get(period, 'Umumiy')}\n\n"
         f"📊 Jami mahsulot: {stats['total_items']}\n"
         f"📦 Jami soni: {stats['total_stock_quantity']:,.0f}\n"
-        f"💰 Jami qiymati: {stats['total_stock_value']:,.0f} so'm\n"
         f"⚠ Kam qoldiq: {stats['low_stock_items']} ta\n\n"
         f"📥 Kirim: {period_stats['stock_in']:,.0f} dona\n"
         f"📤 Chiqim: {period_stats['stock_out']:,.0f} dona\n"
@@ -279,10 +278,12 @@ def _order_actions_keyboard(order_id: int) -> types.InlineKeyboardMarkup:
 async def admin_orders_button(message: types.Message):
     if not is_admin(message.from_user.id):
         return
-    orders = await db.get_orders(limit=10)
+    from datetime import date
+    orders = await db.get_orders_by_date(date.today())
     if not orders:
-        await message.answer("Buyurtmalar yo'q.")
+        await message.answer("📅 Bugun buyurtmalar yo'q.\n\nBoshqa sana uchun: <code>/orders YYYY-MM-DD</code>", parse_mode="HTML")
         return
+    await message.answer(f"📅 <b>Bugun</b>: {len(orders)} ta buyurtma", parse_mode="HTML")
     for order in orders:
         emoji = {"pending": "⏳", "processing": "👨‍🍳", "delivered": "✅", "cancelled": "❌"}.get(order["status"], "📦")
         text = (
@@ -291,6 +292,7 @@ async def admin_orders_button(message: types.Message):
             f"📞 {order['phone']}\n"
             f"📍 {order['address']}\n"
             f"💰 {order['total_amount']:,.0f} so'm\n"
+            f"📅 {order['created_at'].strftime('%d.%m.%Y %H:%M') if order.get('created_at') else '—'}\n"
             f"Status: <b>{order['status']}</b>"
         )
         reply_markup = None

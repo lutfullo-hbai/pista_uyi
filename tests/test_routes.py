@@ -32,6 +32,15 @@ async def test_get_warehouse(client: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_create_warehouse_item(client: AsyncClient):
+    resp = await client.post("/api/warehouse", json={"name": "Test mahsulot", "unit": "dona", "quantity": 10})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "created"
+    assert "id" in data
+
+
+@pytest.mark.asyncio
 async def test_get_warehouse_transactions(client: AsyncClient):
     resp = await client.get("/api/warehouse/transactions")
     assert resp.status_code == 200

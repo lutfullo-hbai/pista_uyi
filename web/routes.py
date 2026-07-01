@@ -320,6 +320,48 @@ async def get_warehouse():
         )
 
 
+@router.post("/api/warehouse")
+async def create_warehouse_item(data: dict):
+    """Create a new warehouse item."""
+    try:
+        item_id = await db.create_warehouse_item(
+            name=data["name"],
+            unit=data.get("unit", "dona"),
+            quantity=data.get("quantity", 0),
+        )
+        if item_id is not None:
+            return {"id": item_id, "status": "created"}
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Failed to create warehouse item",
+        )
+    except Exception as e:
+        logger.error("Failed to create warehouse item: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create warehouse item",
+        )
+
+
+@router.delete("/api/warehouse/{item_id}")
+async def delete_warehouse_item(item_id: int):
+    """Delete a warehouse item."""
+    try:
+        success = await db.delete_warehouse_item(item_id)
+        if success:
+            return {"status": "deleted"}
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Warehouse item not found",
+        )
+    except Exception as e:
+        logger.error("Failed to delete warehouse item: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete warehouse item",
+        )
+
+
 @router.get("/api/warehouse/transactions")
 async def get_warehouse_transactions(limit: int = 50):
     """Get warehouse transaction history."""
